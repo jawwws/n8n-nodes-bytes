@@ -1,0 +1,100 @@
+name: Stage npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Approved npm version, for example 0.1.0'
+        required: true
+        type: string
+      commit_sha:
+        description: 'Full 40-character SHA of the approved main commit'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bytes-n8n-npm-stage
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Review and stage package on npm
+    if: github.repository == 'jawwws/n8n-nodes-bytes' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm-staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      APPROVED_VERSION: ${{ inputs.version }}
+      APPROVED_COMMIT_SHA: ${{ inputs.commit_sha }}
+    steps:
+      - name: Checkout approved commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use patched Node.js and npm
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify approved source, package and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          [[ "$APPROVED_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$APPROVED_COMMIT_SHA"
+          test "$GITHUB_SHA" = "$APPROVED_COMMIT_SHA"
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const version = process.env.APPROVED_VERSION;
+            const repo = p.repository?.url;
+            if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version)) process.exit(1);
+            if (p.name !== "@jawwws/n8n-nodes-bytes" || p.version !== version || p.license !== "MIT") process.exit(1);
+            if (repo !== "git+https://github.com/jawwws/n8n-nodes-bytes.git") process.exit(1);
+            if (p.private === true) process.exit(1);
+            if (process.versions.node !== "24.22.1") process.exit(1);
+          '
+          node -e '
+            const cp = require("node:child_process");
+            const version = cp.execFileSync("npm", ["--version"], { encoding: "utf8" }).trim();
+            const [major, minor] = version.split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 15)) process.exit(1);
+          '
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run package checks
+        run: npm run check
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Inspect npm tarball manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/npm-package-manifest.json"
+          node - "$RUNNER_TEMP/npm-package-manifest.json" <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!Array.isArray(data) || data.length !== 1) process.exit(1);
+          const files = data[0].files.map(f => f.path);
+          if (files.length !== 16) process.exit(1);
+          if (files.some(f => /tsbuildinfo|node_modules|\.env|\.npmrc|\.github|package-lock/.test(f))) process.exit(1);
+          const required = ['package.json', 'LICENSE.md', 'README.md', 'dist/nodes/JawwwsBytes/JawwwsBytes.node.js'];
+          if (!required.every(f => files.includes(f))) process.exit(1);
+          console.log(`Validated ${files.length} expected tarball files`);
+          NODE
+
+      - name: Submit reviewed package to npm staging
+        run: npm stage publish --access public --provenance --ignore-scripts
