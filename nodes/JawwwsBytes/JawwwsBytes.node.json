@@ -1,0 +1,21 @@
+{
+  "node": "@jawwws/n8n-nodes-bytes",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": [
+    "Marketing & Content",
+    "Development"
+  ],
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://developer.jaww.ws/developer-api/"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://developer.jaww.ws/"
+      }
+    ]
+  }
+}
