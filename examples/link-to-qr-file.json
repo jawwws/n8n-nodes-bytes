@@ -1,0 +1,149 @@
+{
+  "name": "Bytes example: existing Link to QR binary file",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Bytes Link to QR file\n\n1. Replace `REPLACE_WITH_PUBLIC_BYTES_LINK_ID` in Set Link ID with a test Link public ID.\n2. Select your Jawwws Bytes API credential in Get Link and Get QR.\n3. Run manually and download the PNG from **Get QR > Binary > data**.\n4. Optional: enable the Write QR to Disk node **only** after ensuring `/home/node/.n8n-files` exists and is writable in your n8n host/container. Docker paths are inside the container. Keep the workflow inactive.",
+        "height": 340,
+        "width": 540
+      },
+      "id": "8d2bd0ee-c25b-4dad-8ed4-3b1123782727",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -230
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6db5dfc1-f77f-4783-95a3-7f667d41dd69",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\"link_id\":\"REPLACE_WITH_PUBLIC_BYTES_LINK_ID\"}",
+        "options": {}
+      },
+      "id": "b16dfb0f-5b36-4bfb-81bb-724492c03223",
+      "name": "Set Link ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        320,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "link",
+        "operation": "get",
+        "linkId": "={{ $json.link_id }}"
+      },
+      "id": "3687b5bd-a479-4f38-bbb4-bda93a341e23",
+      "name": "Get Link",
+      "type": "@jawwws/n8n-nodes-bytes.jawwwsBytes",
+      "typeVersion": 1,
+      "position": [
+        540,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "link",
+        "operation": "getQr",
+        "linkId": "={{ $json.id }}",
+        "format": "png",
+        "size": 512,
+        "binaryProperty": "data"
+      },
+      "id": "03ad04fa-5368-472a-aa57-e72e56e954ac",
+      "name": "Get QR",
+      "type": "@jawwws/n8n-nodes-bytes.jawwwsBytes",
+      "typeVersion": 1,
+      "position": [
+        760,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/home/node/.n8n-files/' + $binary.data.fileName }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "ac232dfe-e159-41e9-b39e-400fee9ef0ff",
+      "name": "Write QR to Disk (optional)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        980,
+        60
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Set Link ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Link ID": {
+      "main": [
+        [
+          {
+            "node": "Get Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Link": {
+      "main": [
+        [
+          {
+            "node": "Get QR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get QR": {
+      "main": [
+        [
+          {
+            "node": "Write QR to Disk (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "active": false
+}

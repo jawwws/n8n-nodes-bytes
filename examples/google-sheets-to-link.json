@@ -1,0 +1,92 @@
+{
+  "name": "Bytes example: Google Sheets row to measured Link",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Google Sheets to Bytes Link\n\n**Before activation:** select your Google Sheets credential, Spreadsheet and Sheet in the trigger, then configure a Jawwws Bytes API credential in Create Link.\n\nUse column headings `destination_url` and `title`. Only add test rows in a Jawwws-owned spreadsheet. The workflow is intentionally inactive until configured.",
+        "height": 280,
+        "width": 460
+      },
+      "id": "f0b8b61c-8cf5-4518-a0df-37a3f5c91e62",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "304a2f7b-a2bb-481f-8ee9-c14651d9fc69",
+      "name": "New spreadsheet row",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        60,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "link",
+        "operation": "create",
+        "destinationUrl": "={{ $json.destination_url }}",
+        "title": "={{ $json.title || \"\" }}",
+        "slug": "",
+        "activityGroupId": "",
+        "additionalFields": {}
+      },
+      "id": "82bd7eab-4c1f-463f-9392-66ad4c8d1068",
+      "name": "Create measured Link",
+      "type": "@jawwws/n8n-nodes-bytes.jawwwsBytes",
+      "typeVersion": 1,
+      "position": [
+        340,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "New spreadsheet row": {
+      "main": [
+        [
+          {
+            "node": "Create measured Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "active": false
+}
