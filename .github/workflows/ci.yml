@@ -10,7 +10,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +22,100 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run package checks
         run: npm run check
-      - name: Check production dependencies
-        run: npm audit --omit=dev
+      - name: Review upstream n8n host peer advisory
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > "$RUNNER_TEMP/npm-host-peer-audit.json" || audit_exit=$?
+          test "${audit_exit:-0}" -le 1
+          node - "$RUNNER_TEMP/npm-host-peer-audit.json" <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!report.vulnerabilities || typeof report.vulnerabilities !== 'object') {
+            throw new Error('Missing or malformed upstream npm audit report');
+          }
+          const vulnerabilities = report.vulnerabilities;
+          const names = Object.keys(vulnerabilities).sort();
+          if (names.length === 0) {
+            console.log('No upstream n8n peer advisories');
+            process.exit(0);
+          }
+          const expected = ['@n8n/expression-runtime', 'n8n-workflow', 'zod'];
+          if (JSON.stringify(names) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected upstream vulnerability packages: ${names.join(', ')}`);
+          }
+          const allowed = 'https://github.com/advisories/GHSA-mrhx-c7xc-m3w5';
+          const sourceAdvisories = [];
+          for (const [name, item] of Object.entries(vulnerabilities)) {
+            if (item.severity !== 'high' || !Array.isArray(item.via)) {
+              throw new Error(`Unexpected upstream severity or advisory shape: ${name}`);
+            }
+            for (const via of item.via) {
+              if (typeof via === 'string') {
+                if (!expected.includes(via)) throw new Error(`Unknown upstream chain: ${via}`);
+              } else if (via && typeof via === 'object') {
+                sourceAdvisories.push(via);
+              } else {
+                throw new Error('Unknown upstream advisory data');
+              }
+            }
+          }
+          if (sourceAdvisories.length !== 1 || sourceAdvisories[0].url !== allowed ||
+              sourceAdvisories[0].severity !== 'high') {
+            throw new Error('New or changed upstream security advisory requires review');
+          }
+          console.log('::warning title=Upstream n8n host vulnerability::Known Zod advisory GHSA-mrhx-c7xc-m3w5 remains in host-supplied n8n-workflow. Bytes does not bundle this peer dependency.');
+          NODE
+      - name: Audit packaged Bytes runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          export APPROVED_VERSION="$(node -p 'require("./package.json").version')"
+          archive="$(npm pack --ignore-scripts --pack-destination "$tmp" --silent)"
+          printf '%s\n' '{"name":"bytes-package-audit","version":"1.0.0","private":true}' > "$tmp/package.json"
+          cd "$tmp"
+          npm install --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund "./$archive"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const keys = Object.keys(lock.packages).sort();
+          const expected = ['', 'node_modules/@jawwws/n8n-nodes-bytes'];
+          if (JSON.stringify(keys) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected packaged runtime dependencies: ${keys.join(', ')}`);
+          }
+          const pkg = lock.packages[expected[1]];
+          if (pkg.version !== process.env.APPROVED_VERSION || Object.keys(pkg.dependencies || {}).length ||
+              pkg.peerDependencies?.['n8n-workflow'] !== '*') {
+            throw new Error('Bytes release dependency boundary has changed');
+          }
+          NODE
+          npm audit --omit=dev --registry=https://registry.npmjs.org/
       - name: Verify package contents
-        run: npm pack --dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/npm-package-manifest.json"
+          node - "$RUNNER_TEMP/npm-package-manifest.json" <<'NODE'
+          const fs = require('node:fs');
+          const entries = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!Array.isArray(entries) || entries.length !== 1) {
+            throw new Error('Expected exactly one npm package manifest');
+          }
+          const files = entries[0].files.map(item => item.path);
+          const required = [
+            'LICENSE.md',
+            'README.md',
+            'package.json',
+            'dist/credentials/JawwwsBytesApi.credentials.js',
+            'dist/nodes/JawwwsBytes/JawwwsBytes.node.js',
+          ];
+          if (files.length !== 16 || !required.every(file => files.includes(file))) {
+            throw new Error(`Expected 16 distributable files including both compiled entrypoints; found ${files.length}: ${files.join(', ')}`);
+          }
+          if (files.some(file => /tsbuildinfo|node_modules|\.env|\.npmrc|\.github|package-lock/.test(file))) {
+            throw new Error('Unexpected local or sensitive file in published package');
+          }
+          console.log('Validated 16 distributable files and both compiled entrypoints');
+          NODE
